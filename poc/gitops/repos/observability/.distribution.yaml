@@ -1,0 +1,7 @@
+# Chart-only project.
+apiVersion: distribution.acme.co/v1
+rules:
+  - name: public
+    artifacts: [chart]
+    tags: {semver: "^1"}
+    to: [public]
