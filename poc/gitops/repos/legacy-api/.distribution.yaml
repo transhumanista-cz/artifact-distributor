@@ -1,0 +1,6 @@
+# Broken on purpose: shows how mistakes are reported (CI `distributor validate`, /api/v1/projects).
+apiVersion: distribution.acme.co/v1
+project: payments              # trying to ship another project's artifacts
+rules:
+  - name: everything
+    to: [azure-prod]           # unknown target, and no tag selection at all
