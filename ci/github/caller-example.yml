@@ -1,0 +1,9 @@
+# .github/workflows/distribution.yml in a project repository
+name: distribution
+on:
+  pull_request: {paths: [.distribution.yaml]}
+  push: {branches: [main], paths: [.distribution.yaml]}
+jobs:
+  distribution:
+    uses: acme-co/artifact-distributor/.github/workflows/distribution.yml@v1
+    secrets: inherit

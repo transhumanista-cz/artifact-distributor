@@ -1,0 +1,90 @@
+# Platform configuration - owned by the platform team (central repo, CODEOWNERS-protected).
+# Developers never edit this; they reference `targets` by name from their .distribution.yaml.
+#
+# ${ENV:NAME:-default} is expanded from the environment, so the same file works inside
+# docker-compose (service hostnames) and on a laptop (localhost ports).
+
+source:
+  registry: ${ENV:HARBOR:-harbor:5000}         # production: harbor.acme.internal (VPN only)
+  repositories:
+    image: acme.co/images/${project}
+    chart: acme.co/charts/${project}
+
+# Connection options per registry host. PoC registries speak plain HTTP.
+registries:
+  ${ENV:HARBOR:-harbor:5000}:          {tls: disabled}
+  ${ENV:CUSTOMER:-customer:5000}:      {tls: disabled}
+  ${ENV:PUBLIC:-public:5000}:          {tls: disabled}
+
+# Where credentials live. Lookup key = <registry>/<repository path>, most specific first:
+#   secret/registries/customer:5000/vendor/acme/images/acme-payments
+#   secret/registries/customer:5000/vendor/acme/images
+#   secret/registries/customer:5000/vendor/acme          <- stored here
+#   secret/registries/customer:5000
+secrets:
+  backend: vault                      # vault (HashiCorp Vault / OpenBao) | file | env
+  cacheSeconds: 300
+  vault:
+    address: ${ENV:VAULT_ADDR:-http://openbao:8200}
+    mount: secret
+    pathPrefix: registries
+    auth:
+      method: token                   # production: kubernetes or approle
+      tokenEnv: VAULT_TOKEN
+
+# Named destinations developers can use. `prefix` may use ${kind_dir} (images|charts),
+# ${project}, ${name} ... so images and charts never collide in one repository.
+targets:
+  public:
+    registry: ${ENV:PUBLIC:-public:5000}
+    prefix: acme/${kind_dir}
+    description: Public customer-facing registry (Azure ACR in production) - keep it small!
+  customer-x:
+    registry: ${ENV:CUSTOMER:-customer:5000}
+    prefix: vendor/acme/${kind_dir}
+    description: Customer X production namespace
+  customer-x-sandbox:
+    registry: ${ENV:CUSTOMER:-customer:5000}
+    prefix: sandbox/acme
+    description: Customer X sandbox namespace (separate credentials)
+
+# Deny by default. A destination is used only if an allow entry matches registry, repository
+# path and project. Protects against a .distribution.yaml exfiltrating internal pre-releases.
+policy:
+  requireProjectMatchesRepo: true     # repo "payments" may only distribute project "payments"
+  allow:
+    - registry: ${ENV:PUBLIC:-public:5000}
+      repositories: ["acme/**"]
+      projects: ["*"]
+    - registry: ${ENV:CUSTOMER:-customer:5000}
+      repositories: ["vendor/acme/**"]
+      projects: ["payments", "web-ui"]  # contract scope with Customer X
+    - registry: ${ENV:CUSTOMER:-customer:5000}
+      repositories: ["sandbox/acme/**"]
+      projects: ["*"]
+
+# Where the developers' .distribution.yaml files are read from.
+configSource:
+  type: dir                           # production: github (scan the org) or git (list of repos)
+  path: ${ENV:GITOPS_DIR:-/gitops/repos}
+  pollSeconds: ${ENV:POLL_SECONDS:-15}
+  # type: github
+  # org: acme-co
+  # tokenEnv: GITHUB_TOKEN            # GitHub App installation token, contents:read
+  # topic: distributable              # optional: only scan repos with this topic
+
+reconcile:
+  intervalSeconds: ${ENV:RECONCILE_SECONDS:-300}
+
+copy:
+  binary: regctl
+  concurrency: 4
+  timeoutSeconds: 1800
+
+state:
+  path: ${ENV:STATE_PATH:-/data/state.db}
+
+server:
+  listen: 0.0.0.0:${ENV:PORT:-8080}
+  webhookSecretEnv: WEBHOOK_SECRET    # Harbor webhook policy "Auth Header" value
+  apiTokenEnv: API_TOKEN              # bearer token for /api/v1/*

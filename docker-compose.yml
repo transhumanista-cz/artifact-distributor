@@ -1,0 +1,117 @@
+# Artifact distributor - self-contained PoC.
+#
+#   docker compose up -d --build            # registries, OpenBao, distributor
+#   docker compose run --rm demo            # end-to-end scenario with assertions
+#   docker compose down -v
+#
+# Ports on the host: 5001 "Harbor" (source), 5002 customer registry, 5003 public registry,
+#                    8080 distributor API, 8200 OpenBao UI/API (token: root)
+name: artifact-distributor-poc
+
+x-zot: &zot
+  image: ghcr.io/project-zot/zot:v2.1.22   # tiny OCI registry with htpasswd auth + per-namespace ACLs
+  restart: unless-stopped
+
+x-env: &secrets
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-poc-webhook-secret}
+  API_TOKEN: ${API_TOKEN:-poc-api-token}
+
+services:
+  # Stand-in for the private Harbor (Harbor's own compose installer is too heavy for a PoC).
+  # The distributor only uses the OCI distribution API against it, exactly as with Harbor;
+  # Harbor's webhooks are simulated by the demo seeder with Harbor's payload format.
+  harbor:
+    <<: *zot
+    volumes:
+      - ./poc/zot/harbor.json:/etc/zot/config.json:ro
+      - ./poc/zot/htpasswd:/etc/zot/htpasswd:ro
+      - harbor-data:/var/lib/zot
+    ports: ["127.0.0.1:5001:5000"]
+
+  # A customer's private registry: one account per namespace (vendor/acme, sandbox/acme).
+  customer:
+    <<: *zot
+    volumes:
+      - ./poc/zot/customer.json:/etc/zot/config.json:ro
+      - ./poc/zot/htpasswd:/etc/zot/htpasswd:ro
+      - customer-data:/var/lib/zot
+    ports: ["127.0.0.1:5002:5000"]
+
+  # Stand-in for the public Azure registry: anonymous pull, a publisher account for push.
+  public:
+    <<: *zot
+    volumes:
+      - ./poc/zot/public.json:/etc/zot/config.json:ro
+      - ./poc/zot/htpasswd:/etc/zot/htpasswd:ro
+      - public-data:/var/lib/zot
+    ports: ["127.0.0.1:5003:5000"]
+
+  # Secret store (Vault-compatible). Production: Vault/OpenBao, or Azure Key Vault behind it.
+  openbao:
+    image: ghcr.io/openbao/openbao:2.5.2
+    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+    cap_add: [IPC_LOCK]
+    ports: ["127.0.0.1:8200:8200"]
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 2s
+      retries: 30
+
+  openbao-init:
+    image: ghcr.io/openbao/openbao:2.5.2
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: root
+    volumes: ["./poc/openbao/seed.sh:/seed.sh:ro"]
+    depends_on:
+      openbao: {condition: service_healthy}
+
+  distributor:
+    build: .
+    image: artifact-distributor:poc
+    restart: unless-stopped
+    environment:
+      <<: *secrets
+      DISTRIBUTOR_CONFIG: /etc/distributor/platform.yaml
+      VAULT_TOKEN: root                 # PoC only - production uses Kubernetes/AppRole auth
+      POLL_SECONDS: "10"                # GitOps poll interval
+      LOG_LEVEL: INFO
+    volumes:
+      - ./poc/platform.yaml:/etc/distributor/platform.yaml:ro
+      - ./poc/gitops/repos:/gitops/repos:ro   # stands in for the GitHub org scan
+      - distributor-data:/data
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      openbao-init: {condition: service_completed_successfully}
+      harbor: {condition: service_started}
+      customer: {condition: service_started}
+      public: {condition: service_started}
+
+  # End-to-end scenario: plays CI + Harbor (pushes artifacts, fires Harbor webhooks), uses the
+  # API like a developer would, and asserts what landed in the destination registries.
+  demo:
+    image: artifact-distributor:poc
+    profiles: ["demo"]
+    user: "0:0"                         # edits a .distribution.yaml on the bind mount (GitOps step)
+    entrypoint: ["python", "tests/e2e.py"]
+    environment:
+      <<: *secrets
+      DISTRIBUTOR_URL: http://distributor:8080
+      PUBLIC: public:5000
+      CUSTOMER: customer:5000
+      GITOPS_DIR: /gitops/repos
+      SEED_REGISTRY: harbor:5000
+      SEED_WEBHOOK: http://distributor:8080/webhooks/harbor
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./poc/tools:/app/poc/tools:ro
+      - ./poc/gitops/repos:/gitops/repos
+    depends_on:
+      distributor: {condition: service_healthy}
+
+volumes:
+  harbor-data:
+  customer-data:
+  public-data:
+  distributor-data:

@@ -1,0 +1,63 @@
+# Reusable workflow - lives in the central acme-co/artifact-distributor repo.
+# Project repos opt in with ci/github/caller-example.yml (5 lines).
+#
+#   PR touching .distribution.yaml  -> validate (GitHub-hosted, offline: schema + policy + targets)
+#                                   -> plan     (self-hosted runner inside the VPN, posted as PR comment)
+#   merge to default branch         -> nudge the distributor to reload + reconcile right away
+#                                      (optional: it polls the org anyway, this just saves the wait)
+name: artifact-distribution
+on:
+  workflow_call:
+    secrets:
+      DISTRIBUTOR_API_TOKEN: {required: false}
+
+env:
+  DISTRIBUTOR_URL: https://artifact-distributor.acme.internal
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: {repository: acme-co/artifact-distributor, path: .distributor}
+      - run: pip install pyyaml==6.0.2
+      - name: Validate .distribution.yaml against platform targets and policy
+        working-directory: .distributor
+        run: >
+          python -m distributor --platform platform.yaml validate
+          --file "$GITHUB_WORKSPACE/.distribution.yaml" --repo "${{ github.event.repository.name }}"
+
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: [self-hosted, vpn]          # Harbor is only reachable from inside the network
+    permissions: {pull-requests: write}
+    steps:
+      - name: Dry run against the live registries
+        run: |
+          curl -sf -H "Authorization: Bearer ${{ secrets.DISTRIBUTOR_API_TOKEN }}" \
+            "$DISTRIBUTOR_URL/api/v1/plan?project=${{ github.event.repository.name }}&manual=true" > plan.json
+          python3 - <<'PY' > comment.md
+          import json; p = json.load(open("plan.json"))
+          print("### Artifact distribution plan (current default branch config)\n")
+          print("| action | source | destination |\n|---|---|---|")
+          for r in p["results"]:
+              print(f"| {r['action']} | `{r['src']}` | `{r['dst']}` |")
+          for e in p["errors"] + p["warnings"]:
+              print(f"\n> {e}")
+          PY
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md --edit-last || \
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}"}
+
+  apply:
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    needs: validate
+    runs-on: [self-hosted, vpn]
+    steps:
+      - run: |
+          auth="Authorization: Bearer ${{ secrets.DISTRIBUTOR_API_TOKEN }}"
+          curl -sf -X POST -H "$auth" "$DISTRIBUTOR_URL/api/v1/reload"
+          curl -sf -X POST -H "$auth" -d '{"project":"${{ github.event.repository.name }}","wait":true}' \
+            "$DISTRIBUTOR_URL/api/v1/reconcile" | tee result.json

@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acme.co/schemas/distribution.schema.json",
+  "title": ".distribution.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "distribution.acme.co/v1"
+    },
+    "project": {
+      "type": "string"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Merged into every rule"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "to"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "image",
+                "chart"
+              ]
+            },
+            "default": [
+              "image",
+              "chart"
+            ]
+          },
+          "trigger": {
+            "enum": [
+              "auto",
+              "manual"
+            ],
+            "default": "auto"
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "include": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "match": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "exclude": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "list": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "semver": {
+                "type": "string",
+                "examples": [
+                  ">=1.2.0 <2.0.0",
+                  "^1.4",
+                  "1.x || >=2.1.0"
+                ]
+              },
+              "prerelease": {
+                "enum": [
+                  "include",
+                  "exclude",
+                  "only"
+                ],
+                "default": "include"
+              },
+              "keepLatest": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "platform": {
+            "type": "string",
+            "examples": [
+              "linux/amd64"
+            ]
+          },
+          "referrers": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also copy signatures/SBOMs (OCI referrers)"
+          },
+          "prune": {
+            "type": "boolean",
+            "default": false,
+            "description": "Delete destination tags this rule created earlier that are no longer selected"
+          },
+          "to": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Target name from the platform config"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string"
+                    },
+                    "registry": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Template, e.g. 'acme-${name}'. Variables: registry prefix name tag project kind kind_dir target_registry target_prefix major minor patch prerelease version + named regex groups."
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "regex"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "regex": {
+                              "type": "string"
+                            },
+                            "replace": {
+                              "type": "string"
+                            }
+                          },
+                          "description": "re.sub(regex, replace) applied to the SOURCE value of this component"
+                        }
+                      ]
+                    },
+                    "prefix": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Template, e.g. 'acme-${name}'. Variables: registry prefix name tag project kind kind_dir target_registry target_prefix major minor patch prerelease version + named regex groups."
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "regex"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "regex": {
+                              "type": "string"
+                            },
+                            "replace": {
+                              "type": "string"
+                            }
+                          },
+                          "description": "re.sub(regex, replace) applied to the SOURCE value of this component"
+                        }
+                      ]
+                    },
+                    "name": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Template, e.g. 'acme-${name}'. Variables: registry prefix name tag project kind kind_dir target_registry target_prefix major minor patch prerelease version + named regex groups."
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "regex"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "regex": {
+                              "type": "string"
+                            },
+                            "replace": {
+                              "type": "string"
+                            }
+                          },
+                          "description": "re.sub(regex, replace) applied to the SOURCE value of this component"
+                        }
+                      ]
+                    },
+                    "tag": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "description": "Template, e.g. 'acme-${name}'. Variables: registry prefix name tag project kind kind_dir target_registry target_prefix major minor patch prerelease version + named regex groups."
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "regex"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "regex": {
+                              "type": "string"
+                            },
+                            "replace": {
+                              "type": "string"
+                            }
+                          },
+                          "description": "re.sub(regex, replace) applied to the SOURCE value of this component"
+                        }
+                      ]
+                    },
+                    "ref": {
+                      "type": "string",
+                      "description": "Full reference template; combinable with target only"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "rules"
+  ]
+}
