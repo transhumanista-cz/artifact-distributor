@@ -1,0 +1,8 @@
+# Valid file, but the platform policy does not allow "billing" into Customer X's namespace:
+# the copy is denied and reported, nothing leaves Harbor.
+apiVersion: distribution.acme.co/v1
+rules:
+  - name: customer-x
+    artifacts: [image]
+    tags: {semver: ">=1.0.0"}
+    to: [customer-x]
