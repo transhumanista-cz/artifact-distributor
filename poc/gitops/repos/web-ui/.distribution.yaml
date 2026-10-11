@@ -1,0 +1,15 @@
+# Image-only project: there is no chart repository, rules simply find nothing there.
+apiVersion: distribution.acme.co/v1
+rules:
+  - name: public
+    artifacts: [image]
+    tags: {semver: ">=2.0.0", prerelease: exclude}
+    to: [public]
+
+  - name: customer-x-preview
+    artifacts: [image]
+    tags: {semver: ">=2.0.0", prerelease: only}
+    to:
+      # full-reference form: all components in one template; the target supplies host + namespace
+      - target: customer-x-sandbox
+        ref: ${target_registry}/${target_prefix}/webui:${major}.${minor}-preview
