@@ -16,4 +16,4 @@ validate:      ## validate demo configs (legacy-api is broken on purpose)
 	-GITOPS_DIR=poc/gitops/repos python3 -m distributor --platform poc/platform.yaml validate
 
 e2e-local:     ## same scenario without Docker (needs zot, bao, regctl on PATH)
-	./poc/run-local.sh
+	bash ./poc/run-local.sh
