@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/acme-co/artifact-distributor/main/schema/distribution.schema.json
+#
+# Which of this project's artifacts leave Harbor, where to, and under which name.
+# Merging a change to this file is all it takes - the distributor picks it up (GitOps).
+apiVersion: distribution.acme.co/v1
+project: payments            # optional, defaults to the repository name
+
+rules:
+  # Stable releases (image + chart) to the public registry.
+  # Only the 2 newest stay there; older ones this rule pushed are pruned -> minimal storage cost.
+  - name: public-stable
+    artifacts: [image, chart]
+    tags:
+      semver: ">=1.3.0"
+      prerelease: exclude
+      keepLatest: 2
+    prune: true
+    to:
+      - target: public                       # -> public/acme/images/payments:v1.4.0
+                                             #    public/acme/charts/payments:1.4.0
+
+  # Release candidates go to Customer X for in-field testing, renamed to their conventions.
+  - name: customer-x-field-test
+    artifacts: [image]
+    tags:
+      include: ['v(?P<ver>\d+\.\d+\.\d+)-rc\.(?P<rc>\d+)']   # named groups become variables
+    platform: linux/amd64                    # their nodes are amd64 only: copy one platform
+    to:
+      - target: customer-x                   # own-name + tag renamed, registry/prefix from target
+        name: acme-${name}
+        tag: {regex: '^v', replace: ''}      # -> customer/vendor/acme/images/acme-payments:1.4.0-rc.1
+      - target: customer-x-sandbox           # other namespace => other credentials, resolved automatically
+        tag: ${ver}-fieldtest.${rc}          # -> customer/sandbox/acme/payments:1.4.0-fieldtest.1
+
+  # On demand only: product management hands a specific build to a pilot customer.
+  #   POST /api/v1/sync {"project":"payments","rule":"pilot","tag":"dev-7f3a9c1"}
+  - name: pilot
+    trigger: manual
+    to:
+      - target: public
+        prefix: acme/pilot/${kind_dir}
